@@ -5,6 +5,10 @@
 An Electron-based Windows desktop app that opens the DeepSeek Harness Web GUI
 (default `http://127.0.0.1:3080`).
 
+## What is DeepSeek Harness (dsh)
+
+DeepSeek Harness (dsh) is an open-source agent harness developed by DeepSeek AI. 源代码仓库：https://github.com/deepseek-ai/deepseek-harness
+
 ## System Requirements (read before installing)
 
 ### Runtime environment (end users)
