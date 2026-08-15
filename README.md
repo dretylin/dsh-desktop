@@ -7,7 +7,7 @@ An Electron-based Windows desktop app that opens the DeepSeek Harness Web GUI
 
 ## What is DeepSeek Harness (dsh)
 
-DeepSeek Harness (dsh) is an open-source agent harness developed by DeepSeek AI. 源代码仓库：https://github.com/deepseek-ai/deepseek-harness
+DeepSeek Harness (dsh) is an open-source agent harness developed by DeepSeek AI. Repo：https://github.com/deepseek-ai/deepseek-harness
 
 ## System Requirements (read before installing)
 
