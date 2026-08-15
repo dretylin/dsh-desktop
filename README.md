@@ -1,103 +1,111 @@
 # DeepSeek Harness Desktop
 
-一个基于 Electron 的 Windows 桌面应用，用来打开 DeepSeek Harness Web GUI
-（默认地址 `http://127.0.0.1:3080`）。
+[English](README.md) | [中文](README.zh-CN.md)
 
-## 系统要求（安装前必读）
+An Electron-based Windows desktop app that opens the DeepSeek Harness Web GUI
+(default `http://127.0.0.1:3080`).
 
-### 运行环境（终端用户）
+## System Requirements (read before installing)
 
-| 项目 | 要求 |
+### Runtime environment (end users)
+
+| Item | Requirement |
 |---|---|
-| 操作系统 | Windows 10 / Windows 11，**仅 64 位（x64）**。不支持 32 位系统；ARM64 设备未专门测试 |
-| 内存 | 建议 4 GB 及以上（Electron 界面与本地 Harness 服务同时运行） |
-| 磁盘空间 | 安装包约 108 MB，安装后约 360 MB（含内置 Node.js 运行时）；首次启动还会通过 npx 下载 Harness 依赖到用户缓存（约 250 MB）。合计建议预留 **600 MB 以上** |
-| Node.js | **不需要安装。** 应用内置 Node.js 22 LTS（v22.23.2）运行时，自动启动服务时优先使用内置运行时的 `npx`；仅当内置运行时缺失时才回退到系统 PATH 中的 `npx` |
-| 端口 | 默认 `127.0.0.1:3080`。自动启动服务要求该端口未被占用；若端口已被其他进程占用，应用会将其视为"外部已运行的服务"直接连接，不会报错 |
-| 网络 | 首次自动启动服务时需要联网，通过内置 npx 下载 `@deepseek-ai/dsh` 及其依赖；下载完成后可离线使用 |
-| 首次启动 | 首次启动需下载 Harness 包，最长等待 90 秒（窗口显示"启动中…"动画）；下载完成后启动显著加快 |
+| OS | Windows 10 / Windows 11, **64-bit (x64) only**. 32-bit is not supported; ARM64 is untested |
+| Memory | 4 GB or more recommended (the Electron UI and the local Harness service run at the same time) |
+| Disk space | Installer ~108 MB, ~360 MB once installed (includes the bundled Node.js runtime). The first launch additionally downloads Harness dependencies to the user cache via npx (~250 MB). Reserve **600 MB or more** in total |
+| Node.js | **Not required.** The app bundles a Node.js 22 LTS runtime (v22.23.2) and prefers its `npx` when auto-starting the service; it only falls back to the system `npx` on PATH if the bundled runtime is missing |
+| Port | `127.0.0.1:3080` by default. Auto-start requires this port to be free; if another process already serves it, the app treats it as an externally running service and connects directly (no error) |
+| Network | The first auto-start needs internet to download `@deepseek-ai/dsh` and its dependencies through the bundled npx; afterwards the app works offline |
+| First launch | The first launch downloads the Harness packages — the app waits up to 90 seconds (shown by the "Starting…" animation); subsequent launches are much faster |
 
-> 安装包未做代码签名（Authenticode），Windows SmartScreen 可能提示"未知发布者"——选择"仍要运行"即可。
+> The installer is not code-signed (Authenticode); Windows SmartScreen may warn
+> about an "unknown publisher" — choose **Run anyway**.
 
-### 环境变量（可选）
+### Environment variables (optional)
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 |---|---|---|
-| `DSH_URL` | `http://127.0.0.1:3080` | Harness Web GUI 地址（服务运行在其他地址/端口时设置） |
-| `DSH_HOME` | `%USERPROFILE%\.dsh` | Harness 数据/配置目录，也是服务进程的工作目录 |
+| `DSH_URL` | `http://127.0.0.1:3080` | Harness Web GUI address (set this when the service runs on another host/port) |
+| `DSH_HOME` | `%USERPROFILE%\.dsh` | Harness data/config directory; also the working directory of the service process |
 
-### 开发 / 打包环境
+### Development / build environment
 
-| 项目 | 要求 |
+| Item | Requirement |
 |---|---|
-| 操作系统 | Windows 10 / 11（x64） |
-| Node.js | 20.9.0 或更高（与 Harness 要求一致），npm 随 Node 自带 |
-| 网络 | 构建时需联网：`npm install` 拉取依赖；`npm run dist` 还会从 nodejs.org 下载内置 Node 运行时（校验官方 SHA-256 后解压到 `vendor/node`，已存在则跳过） |
+| OS | Windows 10 / 11 (x64) |
+| Node.js | 20.9.0 or newer (same as Harness); npm ships with Node |
+| Network | Needed during build: `npm install` fetches dependencies; `npm run dist` also downloads the bundled Node runtime from nodejs.org (SHA-256 verified against the official checksum, then unpacked into `vendor/node`; skipped if already present) |
 
-## 功能
+## Features
 
-- 独立窗口打开 Harness 界面（单实例，重复启动只会聚焦已有窗口）
-- **自动启动本地服务**：打开应用时若 `http://127.0.0.1:3080` 未运行，自动用内置 Node 运行时的 `npx @deepseek-ai/dsh web` 拉起 Harness（无需本机安装 Node）；退出应用时自动停止由本应用启动的服务（外部已运行的服务不受影响）
-- **启动中动画**：服务未就绪且无错误时，窗口显示"启动中…"与官方鲸鱼图标的点阵版游泳动画；只有启动真正出错时才显示错误页（含具体错误信息）
-- **Settings 中的 Local Server 子界面**：点击侧边栏底部 Settings，在设置列表里选择 "Local Server"，显示 Harness 地址与状态灯——运行正常亮绿灯，未运行/异常亮红灯；支持手动"启动/停止服务"、开关"启动桌面应用时自动启动服务"
-- 无菜单栏（"文件/视图/帮助"已隐藏），快捷键保留：Ctrl + R 刷新、Ctrl + / Ctrl - / Ctrl 0 缩放、F11 全屏、Ctrl + Shift + I 开发者工具
-- 启动出错时显示提示页，并每 5 秒自动重试连接
-- 外部链接一律在系统默认浏览器中打开，窗口内不会跳出 Harness 站点
+- Opens the Harness UI in its own window (single instance; launching again just focuses the existing window)
+- **Auto-start local service**: when `http://127.0.0.1:3080` is not running, the app starts it with `npx @deepseek-ai/dsh web` from the bundled Node runtime (no system Node needed); the service started by the app is stopped when the app exits (externally running services are left alone)
+- **Starting animation**: while the service is not ready and no error has occurred, the window shows "Starting…" with an animated dot-matrix rendition of the official whale icon; the error page (with details) only appears on real failures
+- **Local Server panel in Settings**: open Settings in the sidebar and choose "Local Server" to see the Harness address with a status light — green when running, red when stopped/error; supports manual "Start/Stop service" and the "Auto-start service on app launch" toggle
+- No menu bar ("File/View/Help" hidden); keyboard shortcuts preserved: Ctrl+R reload, Ctrl+ / Ctrl− / Ctrl+0 zoom, F11 fullscreen, Ctrl+Shift+I DevTools
+- Offline error page with automatic retry every 5 seconds
+- External links always open in the system browser; the window never leaves the Harness site
 
-应用设置保存在 `%APPDATA%\DeepSeek Harness\settings.json`。
+App settings are stored in `%APPDATA%\DeepSeek Harness\settings.json`.
 
-## 运行（开发）
+## Run (development)
 
 ```bash
 npm install
 npm start
 ```
 
-如果你的 Harness 跑在其他地址，通过环境变量指定：
+To point the app at a Harness instance on a different address:
 
 ```powershell
 $env:DSH_URL = "http://127.0.0.1:3080"
 npm start
 ```
 
-## 打包 Windows 安装程序
+## Build the Windows installer
 
 ```bash
 npm run dist
 ```
 
-`dist` 前会自动执行 `scripts/fetch-node.js`：从 nodejs.org 下载固定版本的
-Node.js 运行时（`v22.23.2` win-x64），校验 SHA-256 后解压到 `vendor/node`，
-并随安装包一起发布（`extraResources` → 安装目录 `resources/node`）。
-已下载过的版本会跳过（幂等）。
+Before `dist`, `scripts/fetch-node.js` runs automatically: it downloads a pinned
+Node.js runtime (`v22.23.2` win-x64) from nodejs.org, verifies its SHA-256
+checksum, unpacks it into `vendor/node`, and ships it inside the installer
+(`extraResources` → `resources/node` at the install location). Versions that are
+already downloaded are skipped (idempotent).
 
-产物输出到 `dist/`：
+Outputs go to `dist/`:
 
-- `DeepSeek Harness Setup x.x.x.exe` — NSIS 安装程序（可自选安装目录、创建桌面快捷方式）
-- `DeepSeek Harness x.x.x.exe` — 免安装便携版
+- `DeepSeek Harness Setup x.x.x.exe` — NSIS installer (choose install directory, create desktop shortcut)
+- `DeepSeek Harness x.x.x.exe` — portable edition, no installation required
 
-仅打包不生成安装程序（用于快速验证）：
+Package without generating an installer (for quick checks):
 
 ```bash
 npm run pack
 ```
 
-## 项目结构
+## Project structure
 
 ```
 dsh-desktop/
-├── package.json          # 依赖、脚本、electron-builder 配置
+├── package.json          # dependencies, scripts, electron-builder config
 ├── scripts/
-│   └── fetch-node.js     # 下载并校验内置 Node.js 运行时（SHA-256），幂等
+│   └── fetch-node.js     # downloads & verifies the bundled Node.js runtime (SHA-256), idempotent
 ├── vendor/
-│   └── node/             # 内置 Node.js 22 LTS 运行时（打包进安装包，勿手动修改）
+│   └── node/             # bundled Node.js 22 LTS runtime (shipped in the installer; don't edit)
 ├── src/
-│   ├── main.js           # 主进程：窗口、服务管理（自动启动/监控/停止）、IPC
-│   ├── preload.js        # 预加载脚本（contextBridge 安全桥接）
-│   ├── overlay.js        # 注入到设置面板的 Local Server 子界面
-│   ├── start.html        # 启动中页面（点阵版鲸鱼游泳动画）
-│   └── error.html        # 启动出错时的离线提示页
+│   ├── main.js           # main process: window, service management (auto-start/monitor/stop), IPC
+│   ├── preload.js        # preload script (secure contextBridge)
+│   ├── overlay.js        # Local Server panel injected into the Settings UI
+│   ├── start.html        # starting screen (dot-matrix whale swimming animation)
+│   └── error.html        # offline error page when startup fails
 └── build/
-    ├── icon.png            # 应用图标（DeepSeek Harness 官方 favicon.svg 渲染）
-    └── icon-render.html    # 图标渲染源文件（保留以便重新生成）
+    ├── icon.png            # app icon (rendered from the official DeepSeek Harness favicon.svg)
+    └── icon-render.html    # icon render source (kept for regeneration)
 ```
+
+## License
+
+[MIT](LICENSE) — see [LICENSE](LICENSE) for details.
