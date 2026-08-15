@@ -1,0 +1,57 @@
+{
+  "name": "dsh-desktop",
+  "productName": "DeepSeek Harness",
+  "version": "1.0.2",
+  "description": "Electron desktop app for the DeepSeek Harness Web GUI",
+  "main": "src/main.js",
+  "author": "DeepSeek Harness Desktop",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "fetch-node": "node scripts/fetch-node.js",
+    "predist": "node scripts/fetch-node.js",
+    "dist": "electron-builder --win",
+    "prepack": "node scripts/fetch-node.js",
+    "pack": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.dsh.desktop",
+    "productName": "DeepSeek Harness",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/node",
+        "to": "node",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "DeepSeek Harness"
+    }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}

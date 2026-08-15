@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>DeepSeek Harness — 未连接</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #1a1e26;
+      --border: #2a3040;
+      --text: #e6e9f0;
+      --muted: #8b93a7;
+      --accent: #4f8cff;
+      --danger: #e5534b;
+      --ok: #3fb950;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      width: min(560px, calc(100vw - 48px));
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 40px 36px;
+      text-align: center;
+    }
+    .dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--danger);
+      display: inline-block;
+      box-shadow: 0 0 12px rgba(229, 83, 75, 0.7);
+      animation: pulse 1.6s ease-in-out infinite;
+      margin-bottom: 18px;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+    .url {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 13px;
+      color: var(--accent);
+      word-break: break-all;
+      margin-bottom: 14px;
+    }
+    .msg { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 26px; }
+    .msg .detail { display: block; margin-top: 6px; font-size: 12px; opacity: 0.75; }
+    .actions { display: flex; gap: 12px; justify-content: center; }
+    button {
+      font: inherit;
+      font-size: 14px;
+      padding: 10px 22px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      transition: filter 0.15s ease;
+    }
+    button:hover { filter: brightness(1.1); }
+    button:disabled { opacity: 0.6; cursor: default; }
+    button.ghost {
+      background: transparent;
+      color: var(--text);
+      border-color: var(--border);
+    }
+    .hint { margin-top: 24px; font-size: 12px; color: var(--muted); line-height: 1.7; }
+    code { font-family: Consolas, "Cascadia Mono", monospace; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="dot"></div>
+    <h1>无法连接到 DeepSeek Harness</h1>
+    <div class="url" id="url"></div>
+    <div class="msg" id="msg">正在检查服务状态…<span class="detail" id="detail"></span></div>
+    <div class="actions">
+      <button id="retry">重试连接</button>
+      <button class="ghost" id="open-browser">在浏览器中打开</button>
+    </div>
+    <div class="hint">
+      请先启动 Harness 服务，例如运行 <code>dsh start</code> 或 <code>pnpm run dev:web</code><br />
+      本页面会自动重试。
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var url = params.get('url') || 'http://127.0.0.1:3080';
+      var detail = params.get('error') || '';
+
+      document.getElementById('url').textContent = url;
+      if (detail) {
+        var msg = document.getElementById('msg');
+        msg.firstChild.textContent = '连接失败：';
+        document.getElementById('detail').textContent = detail;
+      }
+
+      var retryBtn = document.getElementById('retry');
+      var openBtn = document.getElementById('open-browser');
+
+      function setBusy(busy) {
+        retryBtn.disabled = busy;
+        retryBtn.textContent = busy ? '正在重试…' : '重试连接';
+      }
+
+      async function tryConnect() {
+        setBusy(true);
+        try {
+          var result = await window.dsh.retry();
+          if (!result.ok) {
+            setBusy(false);
+            document.getElementById('msg').firstChild.textContent = '仍无法连接，请确认 Harness 服务已启动。';
+          }
+          // On success the window navigates away and this script is gone.
+        } catch (err) {
+          // The reload can reject (e.g. ERR_ABORTED when a navigation is
+          // superseded). Without this the button stays disabled forever and the
+          // auto-retry below, which skips while disabled, never runs again.
+          setBusy(false);
+          document.getElementById('msg').firstChild.textContent = '重试失败，将继续自动重试。';
+        }
+      }
+
+      retryBtn.addEventListener('click', tryConnect);
+      openBtn.addEventListener('click', function () {
+        window.dsh.openExternal(url);
+      });
+
+      // Auto-retry every 5 seconds until the harness is reachable.
+      window.setInterval(function () {
+        if (!retryBtn.disabled) tryConnect();
+      }, 5000);
+    })();
+  </script>
+</body>
+</html>
