@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop",
   "productName": "DeepSeek Harness",
-  "version": "1.0.2",
+  "version": "1.0.5",
   "description": "Electron desktop app for the DeepSeek Harness Web GUI",
   "main": "src/main.js",
   "author": "DeepSeek Harness Desktop",
@@ -9,9 +9,11 @@
   "scripts": {
     "start": "electron .",
     "fetch-node": "node scripts/fetch-node.js",
-    "predist": "node scripts/fetch-node.js",
+    "fetch-harness": "node scripts/fetch-harness.js",
+    "vendor": "node scripts/fetch-node.js && node scripts/fetch-harness.js",
+    "predist": "npm run vendor",
     "dist": "electron-builder --win",
-    "prepack": "node scripts/fetch-node.js",
+    "prepack": "npm run vendor",
     "pack": "electron-builder --dir"
   },
   "devDependencies": {
@@ -32,6 +34,13 @@
       {
         "from": "vendor/node",
         "to": "node",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "vendor/harness",
+        "to": "harness",
         "filter": [
           "**/*"
         ]

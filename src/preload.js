@@ -20,4 +20,16 @@ contextBridge.exposeInMainWorld('dsh', {
     get: () => ipcRenderer.invoke('config:get'),
     set: (patch) => ipcRenderer.invoke('config:set', patch),
   },
+  voice: {
+    transcribe: (data) => ipcRenderer.invoke('voice:transcribe', data),
+    getStatus: () => ipcRenderer.invoke('voice:status'),
+  },
+  harness: {
+    checkUpdate: () => ipcRenderer.invoke('harness:check-update'),
+    onProgress: (cb) => {
+      const listener = (_event, data) => cb(data);
+      ipcRenderer.on('harness:update-progress', listener);
+      return () => ipcRenderer.removeListener('harness:update-progress', listener);
+    },
+  },
 });

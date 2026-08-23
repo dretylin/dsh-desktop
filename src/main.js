@@ -6,6 +6,8 @@ const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
 const os = require('node:os');
 const { spawn, spawnSync } = require('node:child_process');
+const voiceStt = require('./voice-stt');
+const harnessUpdate = require('./harness-update');
 
 // The DeepSeek Harness Web GUI. Override with the DSH_URL environment variable
 // if your harness runs on a different port/host.
@@ -31,6 +33,7 @@ const server = {
   child: null,
   error: null,
   detail: null,     // last lines of child output, for diagnostics
+  via: null,        // 'bundled' | 'npx' — how the last spawn launched it
 };
 
 /** Quick reachability probe against the harness root. */
@@ -49,6 +52,8 @@ function serverState() {
     error: server.error,
     detail: server.detail,
     url: HARNESS_URL,
+    via: server.via,
+    harnessVersion: bundledHarnessVersion(),
   };
 }
 
@@ -62,6 +67,68 @@ function bundledNodeDir() {
     ? path.join(process.resourcesPath, 'node')
     : path.join(__dirname, '..', 'vendor', 'node');
   return fs.existsSync(path.join(dir, 'npx.cmd')) ? dir : null;
+}
+
+/**
+ * The harness dependency tree staged at build time and shipped inside the
+ * installer (extraResources → resources/harness), or null when it was never
+ * staged. In development it lives in vendor/ (see scripts/fetch-harness.js).
+ */
+function bundledHarnessDir() {
+  const dir = app.isPackaged
+    ? path.join(process.resourcesPath, 'harness')
+    : path.join(__dirname, '..', 'vendor', 'harness');
+  return fs.existsSync(harnessEntry(dir)) ? dir : null;
+}
+
+/** The harness CLI entry point inside a staged tree. */
+function harnessEntry(dir) {
+  return path.join(dir, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
+}
+
+/** Version of the staged harness, or null when nothing is bundled. */
+function bundledHarnessVersion() {
+  const dir = bundledHarnessDir();
+  if (!dir) return null;
+  try {
+    const pkg = path.join(dir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json');
+    return JSON.parse(fs.readFileSync(pkg, 'utf8')).version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How to launch the harness.
+ *
+ * The bundled tree wins. It is the exact tree this build verified, so startup
+ * needs no registry access at all — which matters because `npx @deepseek-ai/dsh`
+ * re-resolves the graph on the user's machine and npm's peer resolver does not
+ * terminate on it (it pegs a core and grows past 3 GB). Pinning the spec alone
+ * does not help: every scoped child is a caret range, so the tree drifts anyway.
+ *
+ * `npx` remains only as the development fallback for a checkout that never ran
+ * scripts/fetch-harness.js.
+ *
+ * `--no-open` is passed in both cases: the web app (dsh-web-app ≥ 0.1.1-rc.1)
+ * opens the default browser on startup by default (openBrowser: true), which
+ * would pop a second browser tab next to this window on every launch.
+ */
+function harnessCommand() {
+  const dir = bundledHarnessDir();
+  const nodeDir = bundledNodeDir();
+  if (dir) {
+    return {
+      file: nodeDir ? path.join(nodeDir, 'node.exe') : 'node',
+      args: [harnessEntry(dir), 'web', '--no-open'],
+      via: 'bundled',
+    };
+  }
+  return {
+    file: process.env.ComSpec || 'cmd.exe',
+    args: ['/c', resolveNpx(), '--yes', '@deepseek-ai/dsh', 'web', '--no-open'],
+    via: 'npx',
+  };
 }
 
 /**
@@ -126,16 +193,9 @@ async function runStartServer() {
   try {
     fs.mkdirSync(dshHome, { recursive: true });
   } catch {}
-  const npx = resolveNpx();
-  const comSpec = process.env.ComSpec || 'cmd.exe';
-  // Pass the path unquoted. spawn() runs without a shell, so it already quotes
-  // arguments containing spaces, and `cmd /c` preserves those quotes when they
-  // wrap an existing executable. Quoting here as well produces
-  // `cmd /c "\"C:\Program Files\nodejs\npx.cmd\""`, which cmd cannot parse —
-  // that broke auto-start for every default Node install on Windows.
   const env = { ...process.env, DSH_HOME: dshHome };
   // Put the bundled runtime first on PATH so everything the harness spawns in
-  // turn (node, npm) resolves to it too, not just the npx shim we invoke here.
+  // turn (node, npm) resolves to it too, not just the entry point we invoke.
   // Windows env keys keep their original case, so overwrite the existing key
   // rather than adding a second one that differs only in case.
   const nodeDir = bundledNodeDir();
@@ -143,7 +203,10 @@ async function runStartServer() {
     const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
     env[pathKey] = `${nodeDir};${env[pathKey] ?? ''}`;
   }
-  const child = spawn(comSpec, ['/c', npx, '--yes', '@deepseek-ai/dsh', 'web'], {
+
+  const { file, args, via } = harnessCommand();
+  server.via = via;
+  const child = spawn(file, args, {
     cwd: dshHome,
     env,
     windowsHide: true,
@@ -228,7 +291,7 @@ function configPath() {
   return path.join(app.getPath('userData'), 'settings.json');
 }
 
-let config = { autoStartServer: true };
+let config = { autoStartServer: true, voiceAutoSend: false, voiceModel: 'gemini-3.5-flash-lite' };
 
 function loadConfig() {
   try {
@@ -264,6 +327,9 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     app.setAppUserModelId('com.dsh.desktop');
     loadConfig();
+    if (isSmokeTest || process.argv.includes('--smoke-flow')) {
+      console.log('[smoke] bundled harness:', bundledHarnessVersion() ?? 'none', '| launch via:', harnessCommand().via);
+    }
     registerIpcHandlers();
     createWindow();
     if (process.platform === 'darwin') {
@@ -517,6 +583,121 @@ function registerIpcHandlers() {
     saveConfig();
     return { ...config };
   });
+
+  ipcMain.handle('voice:transcribe', async (_event, { audioBase64, mimeType, model }) => {
+    try {
+      const targetModel = model || config.voiceModel || 'gemini-3.5-flash-lite';
+      const text = await voiceStt.transcribeAudio({ audioBase64, mimeType, model: targetModel });
+      return { ok: true, text };
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
+  });
+
+  ipcMain.handle('voice:status', async () => {
+    try {
+      const creds = voiceStt.resolveCredentials();
+      return {
+        available: true,
+        model: config.voiceModel || 'gemini-3.5-flash-lite',
+        project: creds.project,
+        location: creds.location,
+      };
+    } catch (err) {
+      return {
+        available: false,
+        error: err.message,
+        model: config.voiceModel || 'gemini-3.5-flash-lite',
+      };
+    }
+  });
+
+  // Check for a newer @deepseek-ai/dsh on the npm registry than the one cached
+  // in the npx cache. When a newer version exists this kicks off the update
+  // flow (stop managed server → delete stale cache → reinstall → restart) and
+  // returns immediately; progress is pushed over 'harness:update-progress'.
+  ipcMain.handle('harness:check-update', async () => {
+    try {
+      const nodeDir = bundledNodeDir();
+      // When the harness ships inside the installer it is pinned on purpose:
+      // the tree was resolved and verified at build time. Re-installing the
+      // `latest` dist-tag at runtime is exactly what broke startup — npm's peer
+      // resolver never finishes on this graph — so this is now report-only and
+      // a newer release is delivered by a new installer.
+      const bundled = bundledHarnessVersion();
+      if (bundled) {
+        let latest = null;
+        try {
+          latest = await harnessUpdate.getLatestVersion({ fetch: (url, opts) => net.fetch(url, opts) });
+        } catch {}
+        const behind = latest !== null && harnessUpdate.compareVersions(bundled, latest) < 0;
+        return { ok: true, pinned: true, upToDate: !behind, cached: bundled, latest };
+      }
+
+      const cacheRoot = harnessUpdate.npmCacheRoot(nodeDir);
+      const dirs = harnessUpdate.findDshCacheDirs(cacheRoot);
+      const cached = dirs.length ? harnessUpdate.cachedVersion(dirs[0]) : null;
+      const latest = await harnessUpdate.getLatestVersion({
+        fetch: (url, opts) => net.fetch(url, opts),
+      });
+      if (!cached) {
+        // Nothing cached yet — the next auto-start already fetches latest.
+        return { ok: true, upToDate: true, cached: null, latest };
+      }
+      if (harnessUpdate.compareVersions(cached, latest) >= 0) {
+        return { ok: true, upToDate: true, cached, latest };
+      }
+      if (server.state === 'running' && !server.managed) {
+        return { ok: false, error: '检测到外部 Harness 服务正在运行，请先停止后再更新' };
+      }
+      runHarnessUpdate({ cacheRoot, dirs, cached, latest, nodeDir }).catch((err) => {
+        sendUpdateProgress('error', (err && err.message) || String(err));
+      });
+      return { ok: true, upToDate: false, cached, latest, updating: true };
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || String(err) };
+    }
+  });
+}
+
+function sendUpdateProgress(phase, message) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('harness:update-progress', { phase, message });
+  }
+}
+
+/**
+ * Update pipeline for the Settings "检查更新" button:
+ * stop the managed server, delete the stale npx cache checkouts, reinstall the
+ * latest version, verify it, then relaunch the app so the new harness boots.
+ */
+async function runHarnessUpdate({ cacheRoot, dirs, cached, latest, nodeDir }) {
+  sendUpdateProgress('stopping', '正在停止 Harness 服务…');
+  stopServer(); // only kills a child we spawned; external servers are left alone
+
+  sendUpdateProgress('downloading', `发现新版本 v${cached} → v${latest}，正在下载并安装…`);
+  harnessUpdate.removeCacheDirs(dirs);
+
+  const npx = resolveNpx();
+  const comSpec = process.env.ComSpec || 'cmd.exe';
+  const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+  try {
+    fs.mkdirSync(dshHome, { recursive: true });
+  } catch {}
+  const res = await harnessUpdate.installLatest({ npx, comSpec, cwd: dshHome });
+  if (!res.ok) throw new Error(res.error || '下载/安装失败');
+
+  const newDirs = harnessUpdate.findDshCacheDirs(cacheRoot);
+  const installed = newDirs.length ? harnessUpdate.cachedVersion(newDirs[0]) : null;
+  if (installed !== latest) {
+    throw new Error(`安装后版本校验失败（期望 ${latest}，实际 ${installed || '未知'}）`);
+  }
+
+  sendUpdateProgress('restarting', `更新完成（v${installed}），正在重启应用…`);
+  setTimeout(() => {
+    app.relaunch();
+    app.exit(0);
+  }, 500);
 }
 
 function buildMenu() {
