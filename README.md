@@ -17,10 +17,10 @@ DeepSeek Harness (dsh) is an open-source agent harness developed by DeepSeek AI.
 |---|---|
 | OS | Windows 10 / Windows 11, **64-bit (x64) only**. 32-bit is not supported; ARM64 is untested |
 | Memory | 4 GB or more recommended (the Electron UI and the local Harness service run at the same time) |
-| Disk space | Installer ~149 MB, ~630 MB once installed (bundled Node.js runtime **and** the complete Harness dependency tree). Reserve **700 MB or more** including session data |
+| Disk space | Installer ~156 MB, ~630 MB once installed (bundled Node.js runtime **and** the complete Harness dependency tree). Reserve **700 MB or more** including session data |
 | Node.js | **Not required.** A pinned Node.js 22 LTS runtime (v22.23.2, npm 10.9.8) ships inside the app and runs the Harness |
-| Harness | **Not required, and never downloaded at runtime.** `@deepseek-ai/dsh` 0.1.1-rc.1 and its entire dependency tree are resolved at build time and shipped inside the installer |
-| Port | `127.0.0.1:3080` by default. Auto-start requires this port to be free; if another process already serves it, the app treats it as an externally running service and connects directly (no error) |
+| Harness | **Not required, and never downloaded at runtime.** `@deepseek-ai/dsh` 0.1.2-rc.1 and its entire dependency tree are resolved at build time and shipped inside the installer |
+| Port | `127.0.0.1:3080` by default. Auto-start requires this port to be free; if another process already serves it, the app treats it as an externally running service and connects directly (no error). A Harness ≥ 0.1.2-rc.1 that you started yourself needs its token — see `DSH_URL` below |
 | Network | Not needed to start the app. Only the agent itself needs internet (the DeepSeek API and any web tools) |
 | First launch | Starts straight from the bundled tree — no download, no waiting |
 
@@ -31,14 +31,15 @@ DeepSeek Harness (dsh) is an open-source agent harness developed by DeepSeek AI.
 > symlinks.** The Harness maintains `.dsh\profiles\node_modules` as a symlink
 > farm and re-points it to the bundled tree on every launch. If a real directory
 > ends up where a symlink belongs, startup aborts with
-> `... exists and is not a symlink; remove it so dsh can manage the installation
-> fallback`. Deleting `.dsh\profiles\node_modules` lets the next launch rebuild it.
+> `... exists and is not a symlink or dsh-managed module proxy; remove it so dsh
+> can manage the installation fallback`. Deleting `.dsh\profiles\node_modules`
+> lets the next launch rebuild it.
 
 ### Environment variables (optional)
 
 | Variable | Default | Description |
 |---|---|---|
-| `DSH_URL` | `http://127.0.0.1:3080` | The address the app loads and probes. **It does not change the port the bundled Harness binds to** — the app always starts it on 3080. Use this only to point the window at a Harness you started yourself (e.g. `dsh web --port 8080`), with auto-start turned off |
+| `DSH_URL` | `http://127.0.0.1:3080` | The address the app loads and probes; the bundled Harness is started on the same port (`--port` follows it). Since 0.1.2-rc.1 the GUI answers **401** without the per-process token from the `dsh web:` startup line — the app captures that token from the service it starts, but to attach to a Harness you started yourself (with auto-start turned off) include the token here, e.g. `DSH_URL=http://127.0.0.1:8080/?token=…` |
 | `DSH_HOME` | `%USERPROFILE%\.dsh` | Harness data/config directory; also the working directory of the service process |
 
 ### Optional extras
@@ -61,9 +62,9 @@ DeepSeek Harness (dsh) is an open-source agent harness developed by DeepSeek AI.
 ## Features
 
 - Opens the Harness UI in its own window (single instance; launching again just focuses the existing window)
-- **Auto-start local service**: when `http://127.0.0.1:3080` is not running, the app starts the bundled Harness directly with the bundled Node runtime — no npx, no registry access, no system Node; the service started by the app is stopped when the app exits (externally running services are left alone)
+- **Auto-start local service**: when `http://127.0.0.1:3080` is not running, the app starts the bundled Harness directly with the bundled Node runtime — no npx, no registry access, no system Node — and opens the GUI through the tokenized startup URL the service prints, so the per-process login the Harness requires since 0.1.2-rc.1 happens without any user action; the service started by the app is stopped when the app exits (externally running services are left alone)
 - **Starting animation**: while the service is not ready and no error has occurred, the window shows "Starting…" with an animated dot-matrix rendition of the official whale icon; the error page (with details) only appears on real failures
-- **Voice Input (STT)**: click the microphone icon in the chat composer or press **Alt+V** to record speech, automatically transcribed into text using **Google Vertex AI (`gemini-3.5-flash-lite`)** and appended into the input box
+- **Voice Input (STT)**: click the microphone icon in the chat composer or press **Alt+V** to record speech, automatically transcribed into text using **Google Vertex AI (`gemini-3.5-transcribe`)** and appended into the input box
 - **Local Server & STT panel in Settings**: open Settings in the sidebar and choose "Local Server & STT" to see the Harness service status, auto-start toggle, and voice input options (e.g. auto-send on speech completion)
 - No menu bar ("File/View/Help" hidden); keyboard shortcuts preserved: Ctrl+R reload, Ctrl+ / Ctrl− / Ctrl+0 zoom, F11 fullscreen, Ctrl+Shift+I DevTools
 - Offline error page with automatic retry every 5 seconds
@@ -97,7 +98,7 @@ Before `dist`, two staging scripts run automatically (both idempotent):
    (`v22.23.2` win-x64) from nodejs.org, verifies its SHA-256 checksum against
    the official `SHASUMS256.txt`, and unpacks it into `vendor/node`.
 2. `scripts/fetch-harness.js` — installs a pinned pnpm into `vendor/pnpm`, then
-   resolves `@deepseek-ai/dsh@0.1.1-rc.1` into `vendor/harness` and verifies the
+   resolves `@deepseek-ai/dsh@0.1.2-rc.1` into `vendor/harness` and verifies the
    result (entry point present, peer dependencies complete).
 
 Both directories ship inside the installer via `extraResources`
@@ -135,7 +136,7 @@ dsh-desktop/
 ├── src/
 │   ├── main.js           # main process: window, service management (auto-start/monitor/stop), IPC
 │   ├── harness-update.js # Harness version reporting (pinned builds never self-update)
-│   ├── voice-stt.js      # Google Vertex STT (gemini-3.5-flash-lite) audio transcription service
+│   ├── voice-stt.js      # Google Vertex STT (gemini-3.5-transcribe) audio transcription service
 │   ├── preload.js        # preload script (secure contextBridge)
 │   ├── overlay.js        # Voice input button & Local Server panel injected into the GUI
 │   ├── start.html        # starting screen (dot-matrix whale swimming animation)

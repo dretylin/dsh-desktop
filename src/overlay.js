@@ -1,7 +1,7 @@
 // Injected into the harness GUI.
 // Adds:
 // 1. "Local Server" management & "Voice Input" configuration inside Settings.
-// 2. Real-time Voice Input (STT) button in the chat composer using Google Vertex gemini-3.5-flash-lite.
+// 2. Real-time Voice Input (STT) button in the chat composer using Google Vertex gemini-3.5-transcribe.
 // 3. Global keyboard shortcut (Alt+V) for instant push-to-talk / speech-to-text.
 (() => {
   if (window.__dshOverlay) return;
@@ -10,7 +10,7 @@
   const api = window.dsh;
   if (!api || !api.server || !api.config) return;
 
-  let cachedConfig = { autoStartServer: true, voiceAutoSend: false, voiceModel: 'gemini-3.5-flash-lite' };
+  let cachedConfig = { autoStartServer: true, voiceAutoSend: false, voiceModel: 'gemini-3.5-transcribe' };
   let liveRefresh = null;
 
   // ---------------------------------------------------------------------------
@@ -144,7 +144,7 @@
         btn.title = '正在录音… 点击停止并识别 (Alt+V)';
       } else if (voiceState === 'transcribing') {
         btn.innerHTML = '<span class="dsh-voice-spinner"></span>';
-        btn.title = '正在通过 Gemini 3.5 Flash Lite 识别…';
+        btn.title = '正在通过 ' + (cachedConfig.voiceModel || 'gemini-3.5-transcribe') + ' 识别…';
       } else {
         btn.innerHTML =
           '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
@@ -182,6 +182,60 @@
     input.dispatchEvent(new Event('change', { bubbles: true }));
     input.focus();
     input.selectionStart = input.selectionEnd = value.length;
+  }
+
+  /**
+   * Every element that can act as the chat composer: the <textarea> of older
+   * GUIs, or the Lexical contenteditable dsh-web-frontend uses since 0.1.2-rc.1
+   * (marked data-composer-input; contenteditable="false" while no workspace is
+   * selected, so an inert one can carry the button but not take text).
+   */
+  function findComposers() {
+    return [...document.querySelectorAll('textarea, [data-composer-input]')];
+  }
+
+  /** The composer to type into: the focused one, else the first editable one. */
+  function activeComposer() {
+    const all = findComposers();
+    const editable = (el) => (el.tagName === 'TEXTAREA' ? !el.disabled : el.isContentEditable);
+    return all.find((el) => el === document.activeElement && editable(el)) || all.find(editable) || null;
+  }
+
+  /** The composer's enclosing card — where its toolbar and send button live. */
+  function composerContainer(composer) {
+    return composer.closest('[data-composer-card]')
+      || composer.closest('[data-input-scroll]')?.parentElement
+      || composer.closest('[class*="InputBar_wrap"]')
+      || composer.parentElement?.parentElement
+      || null;
+  }
+
+  function composerText(composer) {
+    return composer.tagName === 'TEXTAREA' ? composer.value || '' : composer.textContent || '';
+  }
+
+  /**
+   * Append text to the composer through the GUI's own input path, so its state
+   * (send button, drafts) sees it. Returns false when nothing could be typed.
+   */
+  function appendComposerText(composer, text) {
+    const current = composerText(composer);
+    const glue = current && !/\s$/.test(current) ? ' ' : '';
+    if (composer.tagName === 'TEXTAREA') {
+      setReactInputValue(composer, current + glue + text);
+      return true;
+    }
+    // Lexical owns this DOM, so never write innerHTML. execCommand('insertText')
+    // raises the same beforeinput event as typing, which is what it listens to.
+    if (!composer.isContentEditable) return false;
+    composer.focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(composer);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return document.execCommand('insertText', false, glue + text);
   }
 
   async function startRecording() {
@@ -247,24 +301,20 @@
                 const res = await api.voice.transcribe({
                   audioBase64: base64Data,
                   mimeType: blob.type,
-                  model: cachedConfig.voiceModel || 'gemini-3.5-flash-lite',
+                  model: cachedConfig.voiceModel || 'gemini-3.5-transcribe',
                 });
 
                 if (res.ok && res.text) {
-                  const textarea = document.querySelector('textarea');
-                  if (textarea) {
-                    const current = textarea.value || '';
-                    const next = current
-                      ? (current.endsWith(' ') || current.endsWith('\n') ? current + res.text : current + ' ' + res.text)
-                      : res.text;
-                    setReactInputValue(textarea, next);
-
+                  const composer = activeComposer();
+                  if (composer && appendComposerText(composer, res.text)) {
                     if (cachedConfig.voiceAutoSend) {
+                      // The editor enables its send button on its next state
+                      // commit, not synchronously — give it a beat.
                       setTimeout(() => {
-                        const sendBtn = textarea.closest('[class*="InputBar_wrap"]')
+                        const sendBtn = composerContainer(composer)
                           ?.querySelector('button[aria-label*="发送"], button[type="submit"], [class*="send"]');
                         if (sendBtn && !sendBtn.disabled) sendBtn.click();
-                      }, 200);
+                      }, 300);
                     }
                   } else {
                     showToast('已识别: ' + res.text);
@@ -322,18 +372,15 @@
   // ---------------------------------------------------------------------------
 
   function ensureVoiceButtonInjected() {
-    // Find composer tools container (next to attachments / slash commands)
-    const textareas = document.querySelectorAll('textarea');
-    if (!textareas.length) return;
-
-    for (const textarea of textareas) {
-      const container = textarea.closest('[data-input-scroll]')?.parentElement
-        || textarea.parentElement?.parentElement;
+    // Find each composer's tools container (next to attachments / slash commands)
+    for (const composer of findComposers()) {
+      const container = composerContainer(composer);
       if (!container) continue;
 
       const tools = container.querySelector('[class*="InputBar_tools"], [class*="tools"]')
         || container.querySelector('[class*="row"] > div');
-      if (!tools) continue;
+      // The last fallback is loose ("grow" matches "row"); never land inside the editor.
+      if (!tools || tools === composer || tools.contains(composer)) continue;
 
       if (!tools.querySelector('[data-dsh-voice-btn]')) {
         const btn = document.createElement('button');
@@ -374,7 +421,7 @@
       '<div class="dsh-ls-card">' +
       '  <div class="dsh-ls-card-title">语音输入 (STT)</div>' +
       '  <div style="font-size:12px;color:var(--dsw-alias-label-secondary,#b8c0cf);line-height:1.6">' +
-      '    由 <strong>Google Vertex AI (' + (cachedConfig.voiceModel || 'gemini-3.5-flash-lite') + ')</strong> 提供低延迟多模态语音转文字服务。' +
+      '    由 <strong>Google Vertex AI (' + (cachedConfig.voiceModel || 'gemini-3.5-transcribe') + ')</strong> 提供低延迟多模态语音转文字服务。' +
       '  </div>' +
       '  <label class="dsh-ls-label"><input type="checkbox" class="dsh-ls-autosend" /> 语音转写完成后自动发送消息</label>' +
       '  <div style="font-size:12px;color:var(--dsw-alias-label-tertiary,#8b93a7);margin-top:10px">' +

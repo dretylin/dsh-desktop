@@ -32,7 +32,7 @@ const { spawnSync } = require('node:child_process');
 // yields a mixed tree (dsh@0.1.0-rc.6 resolves rc.8 internals). Pinning the
 // newest release is the only way to get an internally consistent snapshot
 // without writing an override for all ~195 scoped packages.
-const HARNESS_SPEC = '@deepseek-ai/dsh@0.1.1-rc.1';
+const HARNESS_SPEC = '@deepseek-ai/dsh@0.1.2-rc.1';
 const PNPM_VERSION = '11.10.0';
 
 const ROOT = path.join(__dirname, '..');
@@ -43,8 +43,14 @@ const PNPM_CLI = path.join(PNPM_HOME, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs')
 const HARNESS = path.join(VENDOR, 'harness');
 const MANIFEST = path.join(HARNESS, '.harness-manifest.json');
 
-// The packages whose install scripts must run (native addons and the spawn
-// helper). pnpm blocks build scripts by default and exits non-zero otherwise.
+// The packages that carry install scripts. pnpm 11 blocks build scripts by
+// default and exits 1 listing them; it also ignores this allow-list under
+// `pnpm add` (it wants the newer `allowBuilds` map), so the scripts do not run.
+// That is fine on win32-x64 — verified on 0.1.1-rc.1 and 0.1.2-rc.1 by loading
+// both addons from the staged tree: koffi and node-pty ship prebuilt binaries
+// their loaders find without the copy step, dsh-subprocess-local's postinstall
+// only chmods a unix helper, and the protobufjs / @google/genai scripts are
+// packaging no-ops. Kept as documentation of what is being skipped.
 const BUILT_DEPS = [
   '@deepseek-ai/dsh-subprocess-local',
   '@google/genai',
@@ -144,9 +150,14 @@ function verifyTree() {
   const peer = path.join(HARNESS, 'node_modules', '@deepseek-ai', 'cordis-plugin-group');
   if (!fs.existsSync(peer)) throw new Error('peer dependency @deepseek-ai/cordis-plugin-group is missing');
 
+  // Every scoped child is a caret range, so the launcher's version alone says
+  // nothing about the tree; record the bundles and the browser build too, and
+  // refuse a tree where any of them is missing.
   const versions = {};
-  for (const name of ['dsh', 'dsh-base', 'dsh-web-app', 'dsh-client-runtime']) {
-    versions[name] = readVersion(path.join(HARNESS, 'node_modules', '@deepseek-ai', name));
+  for (const name of ['dsh', 'dsh-base', 'dsh-web-app', 'dsh-web-frontend']) {
+    const v = readVersion(path.join(HARNESS, 'node_modules', '@deepseek-ai', name));
+    if (v === null) throw new Error(`@deepseek-ai/${name} is missing from the staged tree`);
+    versions[name] = v;
   }
   return versions;
 }

@@ -125,26 +125,36 @@ async function getAccessToken() {
 }
 
 /**
- * Transcribe base64 encoded audio using gemini-3.5-flash-lite on Google Vertex AI
+ * Map user-facing model identifiers to the exact Vertex AI publisher model name.
+ */
+function resolveVertexModel(model) {
+  if (!model) return 'gemini-3.5-transcribe-preview';
+  if (model === 'gemini-3.5-transcribe') return 'gemini-3.5-transcribe-preview';
+  return model;
+}
+
+/**
+ * Transcribe base64 encoded audio using gemini-3.5-transcribe on Google Vertex AI
  * @param {Object} opts
  * @param {string} opts.audioBase64 - base64 audio data
  * @param {string} [opts.mimeType] - audio mime type (e.g. audio/webm;codecs=opus or audio/wav)
- * @param {string} [opts.model] - model override (default: gemini-3.5-flash-lite)
+ * @param {string} [opts.model] - model override (default: gemini-3.5-transcribe)
  * @returns {Promise<string>} Transcribed text
  */
-async function transcribeAudio({ audioBase64, mimeType = 'audio/webm', model = 'gemini-3.5-flash-lite' }) {
+async function transcribeAudio({ audioBase64, mimeType = 'audio/webm', model = 'gemini-3.5-transcribe' }) {
   if (!audioBase64 || typeof audioBase64 !== 'string') {
     throw new Error('无效的音频数据');
   }
 
   const token = await getAccessToken();
   const { project, location } = resolveCredentials();
+  const vertexModel = resolveVertexModel(model);
 
   // Strip codec metadata (e.g. audio/webm;codecs=opus -> audio/webm)
   const cleanMime = mimeType.split(';')[0].trim() || 'audio/webm';
 
   const endpointHost = location === 'global' ? 'aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`;
-  const endpointPath = `/v1/projects/${project}/locations/${location}/publishers/google/models/${model}:generateContent`;
+  const endpointPath = `/v1/projects/${project}/locations/${location}/publishers/google/models/${vertexModel}:generateContent`;
 
   const payload = JSON.stringify({
     contents: [

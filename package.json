@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop",
   "productName": "DeepSeek Harness",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Electron desktop app for the DeepSeek Harness Web GUI",
   "main": "src/main.js",
   "author": "DeepSeek Harness Desktop",

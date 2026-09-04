@@ -7,7 +7,7 @@
 Key operational characteristics:
 - **Zero-Dependency End-User Experience**: The application bundles a pinned Node.js LTS runtime (`v22.23.2` win-x64) into the installer (`extraResources`), allowing it to automatically launch and manage the local Harness service via `npx @deepseek-ai/dsh web` even if Node.js is not installed on the user's system.
 - **Service Lifecycle Orchestration**: Automatically starts the local backend service if port 3080 is idle; attaches non-destructively if an external Harness instance is already running; stops managed child processes gracefully upon application exit.
-- **Embedded In-App Management & Voice Input**: Dynamically injects a "Local Server & STT" management panel into the DeepSeek Harness Web Settings view and a microphone voice input button (supporting Alt+V) into the chat composer via DOM overlay, utilizing Google Vertex AI (`gemini-3.5-flash-lite`) for low-latency Speech-to-Text transcription.
+- **Embedded In-App Management & Voice Input**: Dynamically injects a "Local Server & STT" management panel into the DeepSeek Harness Web Settings view and a microphone voice input button (supporting Alt+V) into the chat composer via DOM overlay, utilizing Google Vertex AI (`gemini-3.5-transcribe`) for low-latency Speech-to-Text transcription.
 
 ---
 
@@ -22,7 +22,7 @@ dsh-desktop/
 │   └── node/             # Bundled Node.js 22 LTS runtime (downloaded by fetch-node.js; ignored by git)
 ├── src/
 │   ├── main.js           # Electron main process: window lifecycle, service supervisor, IPC handlers, config
-│   ├── voice-stt.js      # Google Vertex STT (gemini-3.5-flash-lite) audio transcription service
+│   ├── voice-stt.js      # Google Vertex STT (gemini-3.5-transcribe) audio transcription service
 │   ├── preload.js        # Sandboxed contextBridge exposing window.dsh API to the renderer/GUI
 │   ├── overlay.js        # Script injected into the Harness Web GUI (Local Server settings + Voice Input button)
 │   ├── start.html        # Loading screen with dot-matrix whale animation shown during service spin-up
@@ -42,7 +42,7 @@ dsh-desktop/
   - Sets up IPC channels (`server:status`, `server:start`, `server:stop`, `voice:transcribe`, `voice:status`, `config:get`, `config:set`, `dsh:open-external`, `app:version`).
 - **`src/voice-stt.js`**:
   - Handles Google Cloud ADC resolution and OAuth access token caching.
-  - Calls Google Vertex AI `gemini-3.5-flash-lite:generateContent` with audio inlineData to produce clean STT transcriptions.
+  - Calls Google Vertex AI `gemini-3.5-transcribe:generateContent` with audio inlineData to produce clean STT transcriptions.
 - **`src/preload.js`**:
   - Secure bridge using `contextBridge.exposeInMainWorld('dsh', ...)` with narrow, JSON-serializable invocations.
 - **`src/overlay.js`**:

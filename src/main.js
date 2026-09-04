@@ -10,7 +10,9 @@ const voiceStt = require('./voice-stt');
 const harnessUpdate = require('./harness-update');
 
 // The DeepSeek Harness Web GUI. Override with the DSH_URL environment variable
-// if your harness runs on a different port/host.
+// to move the app — and the server it starts — to another port. For a harness
+// you started yourself, include the token `dsh web` printed:
+//   DSH_URL=http://127.0.0.1:8080/?token=…
 const HARNESS_URL = process.env.DSH_URL || 'http://127.0.0.1:3080';
 const APP_NAME = 'DeepSeek Harness';
 const OVERLAY_SOURCE = fs.readFileSync(path.join(__dirname, 'overlay.js'), 'utf8');
@@ -34,14 +36,41 @@ const server = {
   error: null,
   detail: null,     // last lines of child output, for diagnostics
   via: null,        // 'bundled' | 'npx' — how the last spawn launched it
+  startupUrl: null, // tokenized URL printed by our own child; null for an external server
 };
 
-/** Quick reachability probe against the harness root. */
-function probeServer(timeoutMs = 2500) {
+/**
+ * Quick reachability probe against the harness root.
+ *
+ * dsh-web-app ≥ 0.1.2-rc.1 answers an unauthenticated index request with 401:
+ * the page wants the per-process token from the `dsh web:` line, or the cookie
+ * the browser exchanged it for. A 401 therefore still means "the server is up".
+ * `requireAuth` demands a real 200 — used before (re)loading an address whose
+ * token we never saw, so the window does not bounce between the error page and
+ * the harness's bare "authentication required" text.
+ */
+function probeServer(timeoutMs = 2500, { requireAuth = false } = {}) {
   return net
-    .fetch(HARNESS_URL, { method: 'GET', signal: AbortSignal.timeout(timeoutMs) })
-    .then((res) => res.ok)
+    .fetch(HARNESS_URL, { method: 'GET', credentials: 'include', signal: AbortSignal.timeout(timeoutMs) })
+    .then((res) => res.ok || (!requireAuth && res.status === 401))
     .catch(() => false);
+}
+
+/** The page to load: our child's tokenized startup URL when we have one, else the configured address. */
+function guiUrl() {
+  return server.startupUrl ?? HARNESS_URL;
+}
+
+/** Poll `predicate` every 100 ms until it holds or `timeoutMs` elapses; resolves with its final value. */
+function waitFor(predicate, timeoutMs) {
+  return new Promise((resolve) => {
+    const deadline = Date.now() + timeoutMs;
+    const tick = () => {
+      if (predicate() || Date.now() >= deadline) return resolve(predicate());
+      setTimeout(tick, 100);
+    };
+    tick();
+  });
 }
 
 function serverState() {
@@ -113,22 +142,34 @@ function bundledHarnessVersion() {
  * `--no-open` is passed in both cases: the web app (dsh-web-app ≥ 0.1.1-rc.1)
  * opens the default browser on startup by default (openBrowser: true), which
  * would pop a second browser tab next to this window on every launch.
+ * `--port` follows HARNESS_URL so the server lands where the window looks.
  */
 function harnessCommand() {
   const dir = bundledHarnessDir();
   const nodeDir = bundledNodeDir();
+  const flags = ['web', '--no-open', '--port', harnessPort()];
   if (dir) {
     return {
       file: nodeDir ? path.join(nodeDir, 'node.exe') : 'node',
-      args: [harnessEntry(dir), 'web', '--no-open'],
+      args: [harnessEntry(dir), ...flags],
       via: 'bundled',
     };
   }
   return {
     file: process.env.ComSpec || 'cmd.exe',
-    args: ['/c', resolveNpx(), '--yes', '@deepseek-ai/dsh', 'web', '--no-open'],
+    args: ['/c', resolveNpx(), '--yes', '@deepseek-ai/dsh', ...flags],
     via: 'npx',
   };
+}
+
+/** Port the managed server binds — HARNESS_URL's, so DSH_URL moves both the window and the child. */
+function harnessPort() {
+  try {
+    const url = new URL(HARNESS_URL);
+    return url.port || (url.protocol === 'https:' ? '443' : '80');
+  } catch {
+    return '3080';
+  }
 }
 
 /**
@@ -187,6 +228,7 @@ async function runStartServer() {
   server.managed = true;
   server.error = null;
   server.detail = null;
+  server.startupUrl = null;
 
   const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
   // Ensure the working directory exists (a missing cwd makes spawn fail with ENOENT).
@@ -219,7 +261,22 @@ async function runStartServer() {
   const push = (chunk) => {
     output = (output + String(chunk)).slice(-4000);
   };
-  child.stdout.on('data', push);
+  // dsh-web-app ≥ 0.1.2-rc.1 prints `dsh web: http://127.0.0.1:3080/?token=…`
+  // once it listens. That token is the only way into the GUI (the index answers
+  // 401 until the browser has exchanged it for a cookie) and it is printed
+  // nowhere else, so capture it here. Older releases print no such line, and
+  // the plain address keeps working for them.
+  let recent = '';
+  const scanStartupUrl = (chunk) => {
+    if (server.startupUrl) return;
+    recent = (recent + String(chunk)).slice(-2000);
+    const m = /dsh web: (https?:\/\/\S+)/.exec(recent);
+    if (m) server.startupUrl = m[1];
+  };
+  child.stdout.on('data', (chunk) => {
+    push(chunk);
+    scanStartupUrl(chunk);
+  });
   child.stderr.on('data', push);
   child.on('error', (err) => {
     server.state = 'error';
@@ -254,7 +311,10 @@ async function runStartServer() {
         return;
       }
       if (await probeServer(1500)) {
-        server.state = 'running';
+        // The probe can beat the stdout line by a few ms, and without the token
+        // the first page load would be a 401 — give the line a moment to land.
+        await waitFor(() => server.startupUrl !== null, 3000);
+        if (server.state === 'starting') server.state = 'running';
         resolve(serverState());
         return;
       }
@@ -280,6 +340,7 @@ function stopServer() {
   server.state = 'stopped';
   server.managed = false;
   server.pid = null;
+  server.startupUrl = null;
   return serverState();
 }
 
@@ -291,7 +352,7 @@ function configPath() {
   return path.join(app.getPath('userData'), 'settings.json');
 }
 
-let config = { autoStartServer: true, voiceAutoSend: false, voiceModel: 'gemini-3.5-flash-lite' };
+let config = { autoStartServer: true, voiceAutoSend: false, voiceModel: 'gemini-3.5-transcribe' };
 
 function loadConfig() {
   try {
@@ -299,6 +360,11 @@ function loadConfig() {
     const raw = fs.readFileSync(configPath(), 'utf8').replace(/^\uFEFF/, '');
     config = { ...config, ...JSON.parse(raw) };
   } catch {}
+  // saveConfig() persists the whole object, so a settings.json written by an
+  // older build carries the old default model verbatim. There is no UI to pick
+  // a model, so that value is never a deliberate choice \u2014 map it to the current
+  // default instead of keeping every upgraded install on the retired model.
+  if (config.voiceModel === 'gemini-3.5-flash-lite') config.voiceModel = 'gemini-3.5-transcribe';
 }
 
 function saveConfig() {
@@ -397,8 +463,12 @@ function createWindow() {
         event.preventDefault();
         return;
       }
-      const base = new URL(HARNESS_URL);
-      if (target.origin !== base.origin) {
+      // Our child's startup URL may differ from HARNESS_URL in hostname only
+      // (it prints the bind address, e.g. 127.0.0.1 for a DSH_URL of localhost).
+      const allowed = new Set(
+        [HARNESS_URL, server.startupUrl].filter(Boolean).map((u) => new URL(u).origin)
+      );
+      if (!allowed.has(target.origin)) {
         event.preventDefault();
         shell.openExternal(url);
       }
@@ -413,6 +483,16 @@ function createWindow() {
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (isMainFrame && fallbackPage !== 'error' && errorCode !== -3 /* ERR_ABORTED */) {
       showUnreachable(errorDescription || `加载失败 (${errorCode})`);
+    }
+  });
+
+  // dsh-web-app ≥ 0.1.2-rc.1 gates the index behind a per-process token. A 401
+  // here means we loaded an address whose token we never captured — a harness
+  // started outside this app, or a cookie that has expired — so say what fixes
+  // it instead of leaving the harness's bare "authentication required" text up.
+  mainWindow.webContents.on('did-navigate', (_event, url, httpResponseCode) => {
+    if (httpResponseCode === 401 && /^https?:/.test(url) && fallbackPage !== 'error') {
+      showUnreachable('Harness 拒绝了未携带 token 的访问：外部启动的服务请把 DSH_URL 设为 dsh web 打印的完整地址（含 ?token=）');
     }
   });
 
@@ -454,7 +534,15 @@ function createWindow() {
       // page appears — used to verify the starting-screen → GUI transition.
       const url = mainWindow.webContents.getURL();
       console.log('[flow] loaded:', url);
-      if (url.startsWith('http://')) setTimeout(() => app.quit(), 800);
+      if (url.startsWith('http://')) {
+        console.log('[flow] startup token captured:', server.startupUrl !== null);
+        // Whether main-process probes reuse the page's auth cookie (drives dsh:retry).
+        net
+          .fetch(HARNESS_URL, { credentials: 'include' })
+          .then((res) => console.log('[flow] probe with cookie:', res.status))
+          .catch((err) => console.log('[flow] probe error:', String(err)))
+          .finally(() => setTimeout(() => app.quit(), 800));
+      }
     } else {
       run();
     }
@@ -510,7 +598,7 @@ function createWindow() {
     const st = await startServer();
     if (!mainWindow) return;
     if (st.state === 'running') {
-      mainWindow.loadURL(HARNESS_URL).catch(() => {});
+      mainWindow.loadURL(guiUrl()).catch(() => {});
     } else {
       showUnreachable(
         st.error ||
@@ -541,10 +629,12 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('dsh:retry', async () => {
-    const ok = await probeServer();
+    // With no captured token the page has to be authenticated already (cookie);
+    // a reachable-but-401 server would otherwise just bring the error page back.
+    const ok = await probeServer(2500, { requireAuth: server.startupUrl === null });
     if (ok && mainWindow) {
       fallbackPage = null;
-      await mainWindow.loadURL(HARNESS_URL);
+      await mainWindow.loadURL(guiUrl());
       return { ok: true };
     }
     return { ok: false, url: HARNESS_URL };
@@ -586,7 +676,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('voice:transcribe', async (_event, { audioBase64, mimeType, model }) => {
     try {
-      const targetModel = model || config.voiceModel || 'gemini-3.5-flash-lite';
+      const targetModel = model || config.voiceModel || 'gemini-3.5-transcribe';
       const text = await voiceStt.transcribeAudio({ audioBase64, mimeType, model: targetModel });
       return { ok: true, text };
     } catch (err) {
@@ -599,7 +689,7 @@ function registerIpcHandlers() {
       const creds = voiceStt.resolveCredentials();
       return {
         available: true,
-        model: config.voiceModel || 'gemini-3.5-flash-lite',
+        model: config.voiceModel || 'gemini-3.5-transcribe',
         project: creds.project,
         location: creds.location,
       };
@@ -607,7 +697,7 @@ function registerIpcHandlers() {
       return {
         available: false,
         error: err.message,
-        model: config.voiceModel || 'gemini-3.5-flash-lite',
+        model: config.voiceModel || 'gemini-3.5-transcribe',
       };
     }
   });
