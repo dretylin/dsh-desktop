@@ -17,9 +17,9 @@ DeepSeek Harness (dsh) is an open-source agent harness developed by DeepSeek AI.
 |---|---|
 | 操作系统 | Windows 10 / Windows 11，**仅 64 位（x64）**。不支持 32 位系统；ARM64 设备未专门测试 |
 | 内存 | 建议 4 GB 及以上（Electron 界面与本地 Harness 服务同时运行） |
-| 磁盘空间 | 安装包约 156 MB，安装后约 630 MB（含内置 Node.js 运行时**和**完整的 Harness 依赖树）。连同会话数据建议预留 **700 MB 以上** |
+| 磁盘空间 | 安装包约 210 MB，安装后约 815 MB（含内置 Node.js 运行时**和**完整的 Harness 依赖树）。连同会话数据建议预留 **900 MB 以上** |
 | Node.js | **不需要安装。** 应用内置固定版本的 Node.js 22 LTS（v22.23.2，npm 10.9.8）运行时，并用它运行 Harness |
-| Harness | **不需要安装，运行时也不会下载。** `@deepseek-ai/dsh` 0.1.2-rc.1 及其完整依赖树在构建时解析完毕并打包进安装包 |
+| Harness | **不需要安装，运行时也不会下载。** `@deepseek-ai/dsh` 0.2.0-rc.2 及其完整依赖树在构建时解析完毕并打包进安装包 |
 | 端口 | 默认 `127.0.0.1:3080`。自动启动服务要求该端口未被占用；若端口已被其他进程占用，应用会将其视为"外部已运行的服务"直接连接，不会报错。自行启动的 Harness（≥ 0.1.2-rc.1）需要其 token——见下文 `DSH_URL` |
 | 网络 | 启动应用本身不需要联网。仅 Agent 自身需要联网（DeepSeek API 及联网工具） |
 | 首次启动 | 直接从内置依赖树启动，无需下载、无需等待 |
@@ -95,7 +95,7 @@ npm run dist
    （`v22.23.2` win-x64），对照官方 `SHASUMS256.txt` 校验 SHA-256 后解压到
    `vendor/node`。
 2. `scripts/fetch-harness.js` —— 将固定版本的 pnpm 安装到 `vendor/pnpm`，再用它把
-   `@deepseek-ai/dsh@0.1.2-rc.1` 解析到 `vendor/harness`，并校验结果
+   `@deepseek-ai/dsh@0.2.0-rc.2` 解析到 `vendor/harness`，并校验结果
    （入口文件存在、peer 依赖完整）。
 
 两个目录都通过 `extraResources` 打包进安装包（`resources/node` 与

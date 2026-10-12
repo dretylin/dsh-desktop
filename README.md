@@ -17,9 +17,9 @@ DeepSeek Harness (dsh) is an open-source agent harness developed by DeepSeek AI.
 |---|---|
 | OS | Windows 10 / Windows 11, **64-bit (x64) only**. 32-bit is not supported; ARM64 is untested |
 | Memory | 4 GB or more recommended (the Electron UI and the local Harness service run at the same time) |
-| Disk space | Installer ~156 MB, ~630 MB once installed (bundled Node.js runtime **and** the complete Harness dependency tree). Reserve **700 MB or more** including session data |
+| Disk space | Installer ~210 MB, ~815 MB once installed (bundled Node.js runtime **and** the complete Harness dependency tree). Reserve **900 MB or more** including session data |
 | Node.js | **Not required.** A pinned Node.js 22 LTS runtime (v22.23.2, npm 10.9.8) ships inside the app and runs the Harness |
-| Harness | **Not required, and never downloaded at runtime.** `@deepseek-ai/dsh` 0.1.2-rc.1 and its entire dependency tree are resolved at build time and shipped inside the installer |
+| Harness | **Not required, and never downloaded at runtime.** `@deepseek-ai/dsh` 0.2.0-rc.2 and its entire dependency tree are resolved at build time and shipped inside the installer |
 | Port | `127.0.0.1:3080` by default. Auto-start requires this port to be free; if another process already serves it, the app treats it as an externally running service and connects directly (no error). A Harness ≥ 0.1.2-rc.1 that you started yourself needs its token — see `DSH_URL` below |
 | Network | Not needed to start the app. Only the agent itself needs internet (the DeepSeek API and any web tools) |
 | First launch | Starts straight from the bundled tree — no download, no waiting |
@@ -98,7 +98,7 @@ Before `dist`, two staging scripts run automatically (both idempotent):
    (`v22.23.2` win-x64) from nodejs.org, verifies its SHA-256 checksum against
    the official `SHASUMS256.txt`, and unpacks it into `vendor/node`.
 2. `scripts/fetch-harness.js` — installs a pinned pnpm into `vendor/pnpm`, then
-   resolves `@deepseek-ai/dsh@0.1.2-rc.1` into `vendor/harness` and verifies the
+   resolves `@deepseek-ai/dsh@0.2.0-rc.2` into `vendor/harness` and verifies the
    result (entry point present, peer dependencies complete).
 
 Both directories ship inside the installer via `extraResources`

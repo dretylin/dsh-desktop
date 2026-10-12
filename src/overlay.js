@@ -215,6 +215,26 @@
   }
 
   /**
+   * The composer's send button. The GUI labels it in the active language
+   * ("Send message" in the English build, "发送…" in older Chinese builds) and
+   * styles it with hashed CSS-module classes, so match on the accessible label
+   * and fall back to submit/class heuristics.
+   */
+  function findSendButton(container) {
+    if (!container) return null;
+    const buttons = [...container.querySelectorAll('button')];
+    return (
+      buttons.find((b) => /(^|\s)(send message|发送)/i.test(b.getAttribute('aria-label') || '')) ||
+      container.querySelector('button[type="submit"]') ||
+      buttons.find((b) => {
+        const cls = typeof b.className === 'string' ? b.className : '';
+        return cls.split(/\s+/).some((c) => /send/i.test(c));
+      }) ||
+      null
+    );
+  }
+
+  /**
    * Append text to the composer through the GUI's own input path, so its state
    * (send button, drafts) sees it. Returns false when nothing could be typed.
    */
@@ -311,8 +331,7 @@
                       // The editor enables its send button on its next state
                       // commit, not synchronously — give it a beat.
                       setTimeout(() => {
-                        const sendBtn = composerContainer(composer)
-                          ?.querySelector('button[aria-label*="发送"], button[type="submit"], [class*="send"]');
+                        const sendBtn = findSendButton(composerContainer(composer));
                         if (sendBtn && !sendBtn.disabled) sendBtn.click();
                       }, 300);
                     }

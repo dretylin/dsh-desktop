@@ -32,7 +32,7 @@ const { spawnSync } = require('node:child_process');
 // yields a mixed tree (dsh@0.1.0-rc.6 resolves rc.8 internals). Pinning the
 // newest release is the only way to get an internally consistent snapshot
 // without writing an override for all ~195 scoped packages.
-const HARNESS_SPEC = '@deepseek-ai/dsh@0.1.2-rc.1';
+const HARNESS_SPEC = '@deepseek-ai/dsh@0.2.0-rc.2';
 const PNPM_VERSION = '11.10.0';
 
 const ROOT = path.join(__dirname, '..');
